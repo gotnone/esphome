@@ -12,6 +12,7 @@ from esphome.const import (
     CONF_OFFSET,
     CONF_TRIGGER_ID,
 )
+from esphome.cpp_generator import CallExpression, RawExpression, TemplateArguments
 from esphome.cpp_helpers import logging
 
 from .const import (
@@ -42,6 +43,7 @@ AUTO_LOAD = ["modbus"]
 CONF_READ_LAMBDA = "read_lambda"
 CONF_SERVER_REGISTERS = "server_registers"
 CONF_SERVER_COIL_REGISTERS = "server_coil_registers"
+CONF_SERVER_WRITE_REGISTERS = "server_write_registers"
 MULTI_CONF = True
 
 modbus_controller_ns = cg.esphome_ns.namespace("modbus_controller")
@@ -52,6 +54,7 @@ ModbusController = modbus_controller_ns.class_(
 SensorItem = modbus_controller_ns.struct("SensorItem")
 ServerRegister = modbus_controller_ns.struct("ServerRegister")
 ServerCoilRegister = modbus_controller_ns.struct("ServerCoilRegister")
+ServerWriteRegister = modbus_controller_ns.struct("ServerWriteRegister")
 
 ModbusFunctionCode_ns = modbus_controller_ns.namespace("ModbusFunctionCode")
 ModbusFunctionCode = ModbusFunctionCode_ns.enum("ModbusFunctionCode")
@@ -117,6 +120,22 @@ TYPE_REGISTER_MAP = {
     "FP32_R": 2,
 }
 
+TYPE_TYPE_MAP = {
+    "RAW": cg.std_vector.template(cg.uint8).operator("const").operator("ref"),
+    "U_WORD": cg.uint16,
+    "S_WORD": cg.int16,
+    "U_DWORD": cg.uint32,
+    "U_DWORD_R": cg.uint32,
+    "S_DWORD": cg.int32,
+    "S_DWORD_R": cg.int32,
+    "U_QWORD": cg.uint64,
+    "U_QWORD_R": cg.uint64,
+    "S_QWORD": cg.int64,
+    "S_QWORD_R": cg.int64,
+    "FP32": cg.float_,
+    "FP32_R": cg.float_,
+}
+
 ModbusCommandSentTrigger = modbus_controller_ns.class_(
     "ModbusCommandSentTrigger", automation.Trigger.template(cg.int_, cg.int_)
 )
@@ -155,6 +174,21 @@ def validate_address(register_set: set):
 
     return validator
 
+
+def validate_register_count():
+    def validator(write_register: dict):
+        value_type = write_register[CONF_VALUE_TYPE]
+        if value_type != "RAW" and write_register.get(CONF_REGISTER_COUNT) is not None:
+            raise cv.Invalid("Option 'register_count' only valid with value_type 'RAW'")
+        write_register[CONF_REGISTER_COUNT] = write_register.get(
+            CONF_REGISTER_COUNT, TYPE_REGISTER_MAP[value_type]
+        )
+
+        return write_register
+
+    return validator
+
+
 def update_dict(other: dict):
     def validator(register: dict):
         register.update(other)
@@ -166,6 +200,7 @@ def update_dict(other: dict):
 
 ModbusServerRegisterSet = set()
 ModbusServerCoilRegisterSet = set()
+ModbusServerWriteRegisterSet = set()
 
 ModbusServerRegisterSchema = cv.Schema(
     cv.All(
@@ -191,6 +226,20 @@ ModbusServerCoilRegisterSchema = cv.Schema(
     )
 )
 
+ModbusServerWriteRegisterSchema = cv.Schema(
+    cv.All(
+        {
+            cv.GenerateID(): cv.declare_id(ServerWriteRegister),
+            cv.Optional(CONF_VALUE_TYPE, default="U_WORD"): cv.enum(SENSOR_VALUE_TYPE),
+            cv.Required(CONF_ADDRESS): cv.uint16_t,
+            cv.Optional(CONF_REGISTER_COUNT): cv.positive_int,
+            cv.Required(CONF_WRITE_LAMBDA): cv.lambda_,
+        },
+        validate_address(ModbusServerWriteRegisterSet),
+        validate_register_count(),
+    )
+)
+
 CONFIG_SCHEMA = cv.All(
     cv.Schema(
         {
@@ -207,6 +256,9 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(
                 CONF_SERVER_COIL_REGISTERS,
             ): cv.ensure_list(ModbusServerCoilRegisterSchema),
+            cv.Optional(
+                CONF_SERVER_WRITE_REGISTERS,
+            ): cv.ensure_list(ModbusServerWriteRegisterSchema),
             cv.Optional(CONF_ON_COMMAND_SENT): automation.validate_automation(
                 {
                     cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(
@@ -369,6 +421,50 @@ async def to_code(config):
                             server_coil_register[CONF_WRITE_LAMBDA],
                             [(bool, "state")],
                             return_type=cg.void,
+                        ),
+                    )
+                )
+            )
+    if CONF_SERVER_WRITE_REGISTERS in config:
+        for server_write_register in config[CONF_SERVER_WRITE_REGISTERS]:
+            cg.add(
+                var.add_server_write_register(
+                    cg.new_Pvariable(
+                        server_write_register[CONF_ID],
+                        server_write_register[CONF_ADDRESS],
+                        server_write_register[CONF_VALUE_TYPE],
+                        server_write_register[CONF_REGISTER_COUNT],
+                        CallExpression(
+                            RawExpression(
+                                "modbus_controller::ServerWriteRegister::write_lambda_eraser"
+                            ),
+                            TemplateArguments(
+                                SENSOR_VALUE_TYPE[
+                                    server_write_register[CONF_VALUE_TYPE]
+                                ]
+                            ),
+                            await cg.process_lambda(
+                                server_write_register[CONF_WRITE_LAMBDA],
+                                [
+                                    (
+                                        cg.std_vector.template(cg.uint8)
+                                        .operator("const")
+                                        .operator("ref"),
+                                        "data",
+                                    ),
+                                    (
+                                        TYPE_TYPE_MAP[
+                                            server_write_register[CONF_VALUE_TYPE]
+                                        ],
+                                        "state",
+                                    ),
+                                    (
+                                        cg.uint16,
+                                        "last_address",
+                                    ),
+                                ],
+                                return_type=cg.void,
+                            ),
                         ),
                     )
                 )

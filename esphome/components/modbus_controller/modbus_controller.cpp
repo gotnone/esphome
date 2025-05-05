@@ -186,6 +186,95 @@ void ModbusController::on_modbus_write_coil_register(uint8_t function_code, uint
   this->send(function_code, address, 0, response.size(), response.data());
 }
 
+void ModbusController::on_modbus_write_register(uint8_t function_code, uint16_t address, uint16_t state) {
+  ESP_LOGD(TAG,
+           "Received write register for device 0x%X. FC: 0x%X. Start address: 0x%X. State: "
+           "0x%X.",
+           this->address_, function_code, address, state);
+
+  bool found = false;
+  for (auto *server_write_register : this->server_write_registers_) {
+    const uint16_t offset = address - server_write_register->address;
+    if (address >= server_write_register->address && offset < server_write_register->register_count) {
+      server_write_register->data[offset * 2] = state >> 8;
+      server_write_register->data[offset * 2 + 1] = state & 0xFF;
+      ESP_LOGD(TAG, "Matched register. Address: 0x%02X. State: 0x%X", server_write_register->address, state);
+      server_write_register->write_lambda(server_write_register->data, address);
+      found = true;
+      break;
+    }
+  }
+
+  if (!found) {
+    ESP_LOGW(TAG, "Could not match any register to address %02X. Sending exception response.", address);
+    std::vector<uint8_t> error_response;
+    error_response.push_back(this->address_);
+    error_response.push_back(0x80 | function_code);
+    error_response.push_back(0x02);
+    this->send_raw(error_response);
+    return;
+  }
+
+  std::vector<uint8_t> response;
+  response.push_back((state >> 8) & 0xFF);
+  response.push_back(state & 0xFF);
+
+  this->send(function_code, address, 0, response.size(), response.data());
+}
+
+void ModbusController::on_modbus_write_registers(uint8_t function_code, uint16_t start_address,
+                                                 uint16_t number_of_registers, uint8_t byte_count,
+                                                 const std::vector<uint8_t> &data) {
+  ESP_LOGD(TAG,
+           "Received write registers for device 0x%X. FC: 0x%X. Start address: 0x%X. Number of registers: "
+           "0x%X.",
+           this->address_, function_code, start_address, number_of_registers);
+
+  if (number_of_registers * 2 != byte_count) {
+    ESP_LOGW(TAG, "Number of Registers %u * 2: %u does not match Byte Count %u. Sending exception response.",
+             number_of_registers, number_of_registers * 2, byte_count);
+    std::vector<uint8_t> error_response;
+    error_response.push_back(this->address_);
+    error_response.push_back(0x80 | function_code);
+    error_response.push_back(0x03);
+    this->send_raw(error_response);
+    return;
+  }
+
+  bool found = false;
+  for (auto *server_write_register : this->server_write_registers_) {
+    const uint16_t min_register = server_write_register->address;
+    const uint16_t max_register = min_register + server_write_register->register_count - 1;
+    const uint16_t joint_start = std::max(start_address, min_register);
+    const uint16_t joint_end = std::min(uint16_t(start_address + number_of_registers - 1), max_register);
+    if (joint_start <= joint_end) {
+      const uint16_t offset_register = (joint_start - min_register) * 2;
+      const uint16_t count = joint_end - joint_start + 1;
+      const uint16_t byte_count = count * 2;
+      const uint8_t offset_msg = (joint_start - start_address) * 2 + 5;
+      std::copy_n(data.data() + offset_msg, byte_count, server_write_register->data.data() + offset_register);
+      ESP_LOGD(TAG, "Matched register. Address: 0x%02X. Offset: %u Count: %u ", server_write_register->address,
+               offset_register, count);
+      server_write_register->write_lambda(server_write_register->data, joint_end);
+      found = true;
+    }
+  }
+
+  if (!found) {
+    ESP_LOGW(TAG,
+             "Could not match any register to address %02X and number of registers %u. Sending exception response.",
+             start_address, number_of_registers);
+    std::vector<uint8_t> error_response;
+    error_response.push_back(this->address_);
+    error_response.push_back(0x80 | function_code);
+    error_response.push_back(0x02);
+    this->send_raw(error_response);
+    return;
+  }
+
+  this->send(function_code, start_address, number_of_registers, 0, nullptr);
+}
+
 SensorSet ModbusController::find_sensors_(ModbusRegisterType register_type, uint16_t start_address) const {
   auto reg_it = std::find_if(
       std::begin(this->register_ranges_), std::end(this->register_ranges_),
@@ -405,6 +494,11 @@ void ModbusController::dump_config() {
   ESP_LOGCONFIG(TAG, "server coil registers");
   for (auto &r : this->server_coil_registers_) {
     ESP_LOGCONFIG(TAG, "  Address=0x%02X", r->address);
+  }
+  ESP_LOGCONFIG(TAG, "server write registers");
+  for (auto &r : this->server_registers_) {
+    ESP_LOGCONFIG(TAG, "  Address=0x%02X value_type=%zu register_count=%u", r->address,
+                  static_cast<uint8_t>(r->value_type), r->register_count);
   }
 #endif
 }
