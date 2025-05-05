@@ -60,6 +60,9 @@ class ModbusDevice {
   virtual void on_modbus_error(uint8_t function_code, uint8_t exception_code) {}
   virtual void on_modbus_read_registers(uint8_t function_code, uint16_t start_address, uint16_t number_of_registers){};
   virtual void on_modbus_write_coil_register(uint8_t function_code, uint16_t address, uint16_t state){};
+  virtual void on_modbus_write_register(uint8_t function_code, uint16_t address, uint16_t state){};
+  virtual void on_modbus_write_registers(uint8_t function_code, uint16_t start_address, uint16_t register_count,
+                                         uint8_t byte_count, const std::vector<uint8_t> &data){};
   void send(uint8_t function, uint16_t start_address, uint16_t number_of_entities, uint8_t payload_len = 0,
             const uint8_t *payload = nullptr) {
     this->parent_->send(this->address_, function, start_address, number_of_entities, payload_len, payload);

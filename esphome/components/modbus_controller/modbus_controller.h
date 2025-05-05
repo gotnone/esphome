@@ -350,6 +350,48 @@ class ServerCoilRegister {
   std::function<void(bool)> write_lambda;
 };
 
+class ServerWriteRegister {
+  using data_t = std::vector<uint8_t>;
+  using write_lambda_t = std::function<void(const data_t &, uint16_t)>;
+
+ public:
+  ServerWriteRegister(uint16_t address, SensorValueType V, uint8_t register_count, write_lambda_t write_lambda) {
+    this->address = address;
+    this->value_type = value_type;
+    this->register_count = register_count;
+    this->data = data_t(register_count * 2);
+    this->write_lambda = std::move(write_lambda);
+  }
+  template<SensorValueType V, typename T, enable_if_t<V == SensorValueType::RAW> * = nullptr>
+  static write_lambda_t write_lambda_eraser(T callable) {
+    return [=](const data_t &data, uint16_t last_address) {
+      const auto &state = data;
+      callable(data, state, last_address);
+    };
+  }
+  template<SensorValueType V, typename T, typename M = SensorValueTypeMap_t<V>,
+           enable_if_t<std::is_same<M, float>::value> * = nullptr>
+  static write_lambda_t write_lambda_eraser(T callable) {
+    return [=](const data_t &data, uint16_t last_address) {
+      auto state = bit_cast<float>(static_cast<uint32_t>(payload_to_number(data, V, 0, 0xFFFFFFFF)));
+      callable(data, state, last_address);
+    };
+  }
+  template<SensorValueType V, typename T, typename M = SensorValueTypeMap_t<V>,
+           enable_if_t<(V != SensorValueType::RAW) && !std::is_same<M, float>::value, bool> * = nullptr>
+  static write_lambda_t write_lambda_eraser(T callable) {
+    return [=](const data_t &data, uint16_t last_address) {
+      auto state = static_cast<M>(payload_to_number(data, V, 0, 0xFFFFFFFF));
+      callable(data, state, last_address);
+    };
+  }
+  uint16_t address{0};
+  SensorValueType value_type{SensorValueType::RAW};
+  uint8_t register_count{0};
+  std::vector<uint8_t> data{};
+  write_lambda_t write_lambda;
+};
+
 // ModbusController::create_register_ranges_ tries to optimize register range
 // for this the sensors must be ordered by register_type, start_address and bitmask
 class SensorItemsComparator {
@@ -527,6 +569,10 @@ class ModbusController : public PollingComponent, public modbus::ModbusDevice {
   void add_server_coil_register(ServerCoilRegister *server_coil_register) {
     server_coil_registers_.push_back(server_coil_register);
   }
+  /// Registers a server write register with the controller. Called by esphomes code generator
+  void add_server_write_register(ServerWriteRegister *server_write_register) {
+    server_write_registers_.push_back(server_write_register);
+  }
   /// called when a modbus response was parsed without errors
   void on_modbus_data(const std::vector<uint8_t> &data) override;
   /// called when a modbus error response was received
@@ -536,6 +582,11 @@ class ModbusController : public PollingComponent, public modbus::ModbusDevice {
   /// called when a modbus request (function code 5) was parsed without errors
   void on_modbus_write_coil_register(uint8_t function_code, uint16_t address, uint16_t state) final;
   /// default delegate called by process_modbus_data when a response has retrieved from the incoming queue
+  /// called when a modbus request (function code 6) was parsed without errors
+  void on_modbus_write_register(uint8_t function_code, uint16_t address, uint16_t state) final;
+  /// called when a modbus request (function code 16, 0x10) was parsed without errors
+  void on_modbus_write_registers(uint8_t function_code, uint16_t start_address, uint16_t register_count,
+                                 uint8_t byte_count, const std::vector<uint8_t> &data) final;
   void on_register_data(ModbusRegisterType register_type, uint16_t start_address, const std::vector<uint8_t> &data);
   /// default delegate called by process_modbus_data when a response for a write response has retrieved from the
   /// incoming queue
@@ -585,6 +636,8 @@ class ModbusController : public PollingComponent, public modbus::ModbusDevice {
   std::vector<ServerRegister *> server_registers_{};
   /// Collection of all server coil registers for this component
   std::vector<ServerCoilRegister *> server_coil_registers_{};
+  /// Collection of all server write registers for this component
+  std::vector<ServerWriteRegister *> server_write_registers_{};
   /// Continuous range of modbus registers
   std::vector<RegisterRange> register_ranges_{};
   /// Hold the pending requests to be sent
