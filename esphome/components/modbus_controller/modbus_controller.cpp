@@ -241,7 +241,7 @@ void ModbusController::on_modbus_read_coil_registers(uint8_t function_code, uint
 
   if ((number_of_coils == 0) || (number_of_coils > 0x7D0)) {
     ESP_LOGW(TAG, "Invalid number of registers %d. Sending exception response.", number_of_coils);
-    send_error(function_code, 0x01);
+    send_error(function_code, 0x03);
     return;
   }
 
