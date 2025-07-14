@@ -323,12 +323,17 @@ class ServerCoilRegister {
  public:
   ServerCoilRegister(uint16_t address) { this->address = address; }
 
+  void set_read_lambda(std::function<bool(void)> user_read_lambda) {
+    this->read_lambda = std::move(user_read_lambda);
+  }
+
   void set_write_lambda(std::function<void(bool)> user_write_lambda) {
     this->write_lambda = std::move(user_write_lambda);
   }
 
   uint16_t address{0};
   uint16_t state{0};
+  std::function<bool(void)> read_lambda;
   std::function<void(bool)> write_lambda;
 };
 
@@ -517,6 +522,8 @@ class ModbusController : public PollingComponent, public modbus::ModbusDevice {
   void on_modbus_read_registers(uint8_t function_code, uint16_t start_address, uint16_t number_of_registers) final;
   /// called when a modbus request (function code 0x06 or 0x10) was parsed without errors
   void on_modbus_write_registers(uint8_t function_code, const std::vector<uint8_t> &data) final;
+  /// called when a modbus request (function code 0x1) was parsed without errors
+  void on_modbus_read_coil_registers(uint8_t function_code, uint16_t start_address, uint16_t number_of_coils) final;
   /// called when a modbus request (function code 5) was parsed without errors
   void on_modbus_write_coil_register(uint8_t function_code, uint16_t address, uint16_t state) final;
   /// default delegate called by process_modbus_data when a response has retrieved from the incoming queue

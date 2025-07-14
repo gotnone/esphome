@@ -232,6 +232,79 @@ void ModbusController::on_modbus_write_registers(uint8_t function_code, const st
   this->send_raw(response);
 }
 
+void ModbusController::on_modbus_read_coil_registers(uint8_t function_code, uint16_t start_address,
+                                                     uint16_t number_of_coils) {
+  ESP_LOGD(TAG,
+           "Received read coil registers for device 0x%X. FC: 0x%X. Start address: 0x%X. Number of coils: "
+           "0x%X.",
+           this->address_, function_code, start_address, number_of_coils);
+
+  if ((number_of_coils == 0) || (number_of_coils > 0x7D0)) {
+    ESP_LOGW(TAG, "Invalid number of registers %d. Sending exception response.", number_of_coils);
+    send_error(function_code, 0x01);
+    return;
+  }
+
+  auto for_each_register = [this, start_address,
+                            number_of_coils](const std::function<bool(ServerCoilRegister *)> &callback) -> bool {
+    for (uint16_t current_address = start_address; current_address < start_address + number_of_coils;) {
+      bool ok = false;
+      for (auto *server_coil_register : this->server_coil_registers_) {
+        if (server_coil_register->address == current_address) {
+          ok = callback(server_coil_register);
+          current_address += 1;
+          break;
+        }
+      }
+
+      if (!ok) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  // check all registers are readable before reading to any of them:
+  if (!for_each_register(
+          [](ServerCoilRegister *server_coil_register) -> bool { return server_coil_register->read_lambda != nullptr; })) {
+    send_error(function_code, 0x02);
+    return;
+  }
+
+  std::vector<bool> bool_data;
+  bool_data.reserve(number_of_coils);
+
+  // Actually read the registers
+  if (!for_each_register([&bool_data](ServerCoilRegister *server_coil_register) {
+        bool_data.push_back(server_coil_register->read_lambda());
+        return true;
+      })) {
+    send_error(function_code, 4);
+    return;
+  }
+
+  std::vector<uint8_t> data = [&bool_data] {
+    uint8_t current{};
+    int bitpos{};
+    std::vector<uint8_t> result;
+    result.reserve(1 + (bool_data.size() - 1) / 8);
+    for (auto i = 0; i < bool_data.size(); ++i) {
+      current |= bool_data[i] << bitpos++;
+      if (bitpos == 8) {
+        bitpos = 0;
+        result.push_back(current);
+        current = 0;
+      }
+    }
+    if (bitpos) {
+      result.push_back(current);
+    }
+    return result;
+  }();
+
+  this->send(function_code, start_address, data.size(), data.size(), data.data());
+}
+
 void ModbusController::on_modbus_write_coil_register(uint8_t function_code, uint16_t address, uint16_t state) {
   ESP_LOGD(TAG,
            "Received write coil registers for device 0x%X. FC: 0x%X. Start address: 0x%X. State: "

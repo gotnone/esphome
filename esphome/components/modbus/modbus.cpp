@@ -154,6 +154,11 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
         continue;
       }
       if (this->role == ModbusRole::SERVER) {
+        if (function_code == 0x1) {
+          device->on_modbus_read_coil_registers(function_code, uint16_t(data[1]) | (uint16_t(data[0]) << 8),
+                                                uint16_t(data[3]) | (uint16_t(data[2]) << 8));
+          continue;
+        }
         if (function_code == 0x3 || function_code == 0x4) {
           device->on_modbus_read_registers(function_code, uint16_t(data[1]) | (uint16_t(data[0]) << 8),
                                            uint16_t(data[3]) | (uint16_t(data[2]) << 8));

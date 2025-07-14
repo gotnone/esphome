@@ -37,6 +37,9 @@ modbus_controller:
         write_lambda: |-
           ESP_LOGD("Modbus Server Coil Lambda","Got new value %s",
                    state ? "Set" : "Reset");
+        read_lambda: |-
+          ESP_LOGD("Modbus Server Coil Lambda","Returning 'true'")
+          return true;
     max_cmd_retries: 0
   - id: modbus_controller3
     address: 0x3

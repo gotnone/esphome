@@ -202,10 +202,12 @@ ModbusServerCoilRegisterSchema = cv.Schema(
         {
             cv.GenerateID(): cv.declare_id(ServerCoilRegister),
             cv.Required(CONF_ADDRESS): cv.positive_int,
-            cv.Required(CONF_WRITE_LAMBDA): cv.lambda_,
+            cv.Optional(CONF_READ_LAMBDA): cv.returning_lambda,
+            cv.Optional(CONF_WRITE_LAMBDA): cv.lambda_,
         },
         update_dict({CONF_VALUE_TYPE: "COIL"}),
         validate_address(ModbusServerCoilRegisterSet),
+        cv.has_at_least_one_key(CONF_READ_LAMBDA, CONF_WRITE_LAMBDA),
     )
 )
 
@@ -396,16 +398,27 @@ async def to_code(config):
                 server_coil_register[CONF_ID],
                 server_coil_register[CONF_ADDRESS],
             )
-            cg.add(
-                server_coil_register_var.set_write_lambda(
-                    await cg.process_lambda(
-                        server_coil_register[CONF_WRITE_LAMBDA],
-                        parameters=[(cg.bool_, "state")],
-                        return_type=cg.void,
-                    ),
+            if CONF_READ_LAMBDA in server_coil_register:
+                cg.add(
+                    server_coil_register_var.set_read_lambda(
+                        await cg.process_lambda(
+                            server_coil_register.get(CONF_READ_LAMBDA),
+                            parameters=[],
+                            return_type=cg.bool_,
+                        ),
+                    )
                 )
-            )
-            cg.add(var.add_server_coil_register(server_coil_register_var))
+            if CONF_WRITE_LAMBDA in server_coil_register:
+                cg.add(
+                    server_coil_register_var.set_write_lambda(
+                        await cg.process_lambda(
+                            server_coil_register.get(CONF_WRITE_LAMBDA),
+                            parameters=[(cg.bool_, "state")],
+                            return_type=cg.void,
+                        ),
+                    )
+                )
+                cg.add(var.add_server_coil_register(server_coil_register_var))
     await register_modbus_device(var, config)
     for conf in config.get(CONF_ON_COMMAND_SENT, []):
         trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID], var)
