@@ -91,7 +91,7 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
   } else {
     // data starts at 2 and length is 4 for read registers commands
     if (this->role == ModbusRole::SERVER) {
-      if (function_code == 0x1 || function_code == 0x3 || function_code == 0x4 || function_code == 0x6) {
+      if (function_code == 0x1 || function_code == 0x3 || function_code == 0x4 || function_code == 0x5 || function_code == 0x6) {
         data_offset = 2;
         data_len = 4;
       } else if (function_code == 0x10) {
@@ -154,9 +154,19 @@ bool Modbus::parse_modbus_byte_(uint8_t byte) {
         continue;
       }
       if (this->role == ModbusRole::SERVER) {
+        if (function_code == 0x1) {
+          device->on_modbus_read_coil_registers(function_code, uint16_t(data[1]) | (uint16_t(data[0]) << 8),
+                                                uint16_t(data[3]) | (uint16_t(data[2]) << 8));
+          continue;
+        }
         if (function_code == 0x3 || function_code == 0x4) {
           device->on_modbus_read_registers(function_code, uint16_t(data[1]) | (uint16_t(data[0]) << 8),
                                            uint16_t(data[3]) | (uint16_t(data[2]) << 8));
+          continue;
+        }
+        if (function_code == 0x5) {
+          device->on_modbus_write_coil_register(function_code, uint16_t(data[1]) | (uint16_t(data[0]) << 8),
+                                                uint16_t(data[3]) | (uint16_t(data[2]) << 8));
           continue;
         }
         if (function_code == 0x6 || function_code == 0x10) {

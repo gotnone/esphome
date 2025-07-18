@@ -83,6 +83,7 @@ SensorValueType_ns = modbus_controller_ns.namespace("SensorValueType")
 SensorValueType = SensorValueType_ns.enum("SensorValueType")
 SENSOR_VALUE_TYPE = {
     "RAW": SensorValueType.RAW,
+    "COIL": SensorValueType.BIT,
     "U_WORD": SensorValueType.U_WORD,
     "S_WORD": SensorValueType.S_WORD,
     "U_DWORD": SensorValueType.U_DWORD,
@@ -99,6 +100,7 @@ SENSOR_VALUE_TYPE = {
 
 TYPE_REGISTER_MAP = {
     "RAW": 1,
+    "COIL": 1,
     "U_WORD": 1,
     "S_WORD": 1,
     "U_DWORD": 2,
@@ -115,6 +117,7 @@ TYPE_REGISTER_MAP = {
 
 CPP_TYPE_REGISTER_MAP = {
     "RAW": cg.uint16,
+    "COIL": cg.bool_,
     "U_WORD": cg.uint16,
     "S_WORD": cg.int16,
     "U_DWORD": cg.uint32,
