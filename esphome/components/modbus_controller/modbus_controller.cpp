@@ -804,9 +804,6 @@ void number_to_payload(std::vector<uint16_t> &data, int64_t value, SensorValueTy
       data.push_back((value & 0xFFFF00000000) >> 32);
       data.push_back((value & 0xFFFF000000000000) >> 48);
       break;
-    case SensorValueType::BIT:
-      data.push_back(value ? 0xFF00 : 0x0000);
-      break;
     default:
       ESP_LOGE(TAG, "Invalid data type for modbus number to payload conversation: %d",
                static_cast<uint16_t>(value_type));
@@ -822,7 +819,6 @@ int64_t payload_to_number(const std::vector<uint8_t> &data, SensorValueType sens
   bool error = false;
   switch (sensor_value_type) {
     case SensorValueType::U_WORD:
-    case SensorValueType::BIT:
       if (size >= 2) {
         value = mask_and_shift_by_rightbit(get_data<uint16_t>(data, offset), bitmask);  // default is 0xFFFF ;
       } else {
