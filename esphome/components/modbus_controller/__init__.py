@@ -334,7 +334,10 @@ async def to_code(config):
                         ),
                     )
                 )
-            cg.add(var.add_server_register(server_register_var))
+            if server_register[CONF_VALUE_TYPE] == "COIL":
+                cg.add(var.add_server_coil_register(server_register_var))
+            else:
+                cg.add(var.add_server_register(server_register_var))
     await register_modbus_device(var, config)
     for conf in config.get(CONF_ON_COMMAND_SENT, []):
         trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID], var)

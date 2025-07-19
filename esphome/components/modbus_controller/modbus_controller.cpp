@@ -249,7 +249,7 @@ void ModbusController::on_modbus_read_coil_registers(uint8_t function_code, uint
                             number_of_coils](const std::function<bool(ServerRegister *)> &callback) -> bool {
     for (uint16_t current_address = start_address; current_address < start_address + number_of_coils;) {
       bool ok = false;
-      for (auto *server_register : this->server_registers_) {
+      for (auto *server_register : this->server_coil_registers_) {
         if (server_register->address == current_address) {
           ok = callback(server_register);
           current_address += 1;
@@ -318,7 +318,7 @@ void ModbusController::on_modbus_write_coil_register(uint8_t function_code, uint
   }
 
   bool found = false;
-  for (auto *server_register : this->server_registers_) {
+  for (auto *server_register : this->server_coil_registers_) {
     if (server_register->address == address) {
       ESP_LOGD(TAG, "Matched register. Address: 0x%02X. State: 0x%X", server_register->address, state);
       server_register->write_lambda(state == 0xFF00);

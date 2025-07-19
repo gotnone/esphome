@@ -492,8 +492,10 @@ class ModbusController : public PollingComponent, public modbus::ModbusDevice {
   void queue_command(const ModbusCommandItem &command);
   /// Registers a sensor with the controller. Called by esphomes code generator
   void add_sensor_item(SensorItem *item) { sensorset_.insert(item); }
-  /// Registers a server register with the controller. Called by esphomes code generator
+  /// Registers a server holding register with the controller. Called by esphomes code generator
   void add_server_register(ServerRegister *server_register) { server_registers_.push_back(server_register); }
+  /// Registers a server coil register with the controller. Called by esphomes code generator
+  void add_server_coil_register(ServerRegister *server_register) { server_coil_registers_.push_back(server_register); }
   /// called when a modbus response was parsed without errors
   void on_modbus_data(const std::vector<uint8_t> &data) override;
   /// called when a modbus error response was received
@@ -552,8 +554,10 @@ class ModbusController : public PollingComponent, public modbus::ModbusDevice {
   void dump_sensors_();
   /// Collection of all sensors for this component
   SensorSet sensorset_;
-  /// Collection of all server registers for this component
+  /// Collection of server holding registers for this component
   std::vector<ServerRegister *> server_registers_{};
+  /// Collection of server coil registers for this component
+  std::vector<ServerRegister *> server_coil_registers_{};
   /// Continuous range of modbus registers
   std::vector<RegisterRange> register_ranges_{};
   /// Hold the pending requests to be sent
