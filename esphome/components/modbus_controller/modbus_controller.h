@@ -506,8 +506,8 @@ class ModbusController : public PollingComponent, public modbus::ModbusDevice {
   void on_modbus_write_registers(uint8_t function_code, const std::vector<uint8_t> &data) final;
   /// called when a modbus request (function code 0x01) was parsed without errors
   void on_modbus_read_coil_registers(uint8_t function_code, uint16_t start_address, uint16_t number_of_coils) final;
-  /// called when a modbus request (function code 0x05) was parsed without errors
-  void on_modbus_write_coil_register(uint8_t function_code, uint16_t address, uint16_t state) final;
+  /// called when a modbus request (function code 0x05 or 0x0F) was parsed without errors
+  void on_modbus_write_coil_registers(uint8_t function_code, const std::vector<uint8_t> &data) final;
   /// default delegate called by process_modbus_data when a response has retrieved from the incoming queue
   void on_register_data(ModbusRegisterType register_type, uint16_t start_address, const std::vector<uint8_t> &data);
   /// default delegate called by process_modbus_data when a response for a write response has retrieved from the

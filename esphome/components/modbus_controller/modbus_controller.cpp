@@ -305,31 +305,91 @@ void ModbusController::on_modbus_read_coil_registers(uint8_t function_code, uint
   this->send(function_code, start_address, data.size(), data.size(), data.data());
 }
 
-void ModbusController::on_modbus_write_coil_register(uint8_t function_code, uint16_t address, uint16_t state) {
-  ESP_LOGD(TAG,
-           "Received write coil registers for device 0x%X. FC: 0x%X. Start address: 0x%X. State: "
-           "0x%X.",
-           this->address_, function_code, address, state);
+void ModbusController::on_modbus_write_coil_registers(uint8_t function_code, const std::vector<uint8_t> &data) {
+  uint16_t start_address = uint16_t(data[1]) | (uint16_t(data[0]) << 8);
+  uint16_t number_of_coils;
+  uint16_t payload_offset;
+  std::vector<bool> values;
 
-  if (state != 0x0000 && state != 0xFF00) {
-    ESP_LOGW(TAG, "Coil state 0x%04X is not 0x0000 or 0xFF00. Sending exception response", state);
-    send_error(function_code, 3);
+  if (function_code == 0x0F) {
+    number_of_coils = uint16_t(data[3]) | (uint16_t(data[2]) << 8);
+    if (number_of_coils == 0 || number_of_coils > 0x7B0) {
+      ESP_LOGW(TAG, "Invalid number of coils %d. Sending exception response.", number_of_coils);
+      send_error(function_code, 3);
+      return;
+    }
+    uint16_t payload_size = data[4];
+    if (payload_size != (number_of_coils - 1) / 8 + 1) {
+      ESP_LOGW(TAG, "Payload size of %d bytes is not number_of_coils / 8 (%d). Sending exception response.",
+               payload_size, number_of_coils);
+      send_error(function_code, 3);
+      return;
+    }
+    payload_offset = 5;
+    values.reserve(number_of_coils);
+    for (uint16_t i = 0; i < number_of_coils; ++i) {
+      bool state = (data[payload_offset + i / 8] >> (i % 8)) & 0x01;
+      values.push_back(state);
+    }
+  } else if (function_code == 0x05) {
+    number_of_coils = 1;
+    payload_offset = 2;
+    values.reserve(number_of_coils);
+    uint16_t state = uint16_t(data[payload_offset + 1]) | (uint16_t(data[payload_offset]) << 8);
+
+    if (state != 0x0000 && state != 0xFF00) {
+      ESP_LOGW(TAG, "Coil state 0x%04X is not 0x0000 or 0xFF00. Sending exception response", state);
+      send_error(function_code, 3);
+      return;
+    }
+
+    values.push_back(state);
+  } else {
+    ESP_LOGW(TAG, "Invalid function code 0x%X. Sending exception response.", function_code);
+    send_error(function_code, 1);
     return;
   }
 
-  bool found = false;
-  for (auto *server_register : this->server_coil_registers_) {
-    if (server_register->address == address) {
-      ESP_LOGD(TAG, "Matched register. Address: 0x%02X. State: 0x%X", server_register->address, state);
-      server_register->write_lambda(state == 0xFF00);
-      found = true;
-      break;
+  ESP_LOGD(TAG,
+           "Received write coils for device 0x%X. FC: 0x%X. Start address: 0x%X. Number of coils: "
+           "0x%X.",
+           this->address_, function_code, start_address, number_of_coils);
+
+  auto for_each_register = [this, start_address, number_of_coils, payload_offset](
+                               const std::function<bool(ServerRegister *, uint16_t offset)> &callback) -> bool {
+    uint16_t offset = 0;
+    for (uint16_t current_address = start_address; current_address < start_address + number_of_coils;) {
+      bool ok = false;
+      for (auto *server_register : this->server_coil_registers_) {
+        if (server_register->address == current_address) {
+          ok = callback(server_register, offset);
+          ++current_address;
+          ++offset;
+          break;
+        }
+      }
+
+      if (!ok) {
+        return false;
+      }
     }
+    return true;
+  };
+
+  // check all registers are writable before writing to any of them:
+  if (!for_each_register([](ServerRegister *server_register, uint16_t offset) -> bool {
+        return server_register->write_lambda != nullptr;
+      })) {
+    send_error(function_code, 2);
+    return;
   }
 
-  if (!found) {
-    ESP_LOGW(TAG, "Could not match any register to address %02X. Sending exception response.", address);
-    send_error(function_code, 2);
+  // Actually write to the registers:
+  if (!for_each_register([&values](ServerRegister *server_register, uint16_t offset) {
+        bool state = values[offset];
+        return server_register->write_lambda(state);
+      })) {
+    send_error(function_code, 4);
     return;
   }
 
@@ -337,8 +397,7 @@ void ModbusController::on_modbus_write_coil_register(uint8_t function_code, uint
   response.reserve(6);
   response.push_back(this->address_);
   response.push_back(function_code);
-  response.push_back((state >> 8) & 0xFF);
-  response.push_back(state & 0xFF);
+  response.insert(response.end(), data.begin(), data.begin() + 4);
   this->send_raw(response);
 }
 
